@@ -1115,3 +1115,28 @@ check_users
 check_home_directories
 
 print_summary
+
+# Amélioration de l'initialisation d'AIDE
+initialize_aide() {
+    log_message "=== Initialisation d'AIDE ==="
+    
+    if ! command -v aide >/dev/null 2>&1; then
+        log_message "Installation d'AIDE..."
+        yum install aide -y
+    fi
+    
+    # Création d'une base de données initiale unique
+    log_message "Création de la base de données AIDE..."
+    aide --init
+    
+    # Déplacement et renommage de la base
+    if [ -f /var/lib/aide/aide.db.new.gz ]; then
+        mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+        log_message "Base de données AIDE initialisée avec succès"
+    else
+        log_message "ATTENTION: Échec de l'initialisation de la base AIDE"
+    fi
+}
+
+# Appel de la fonction après l'installation
+initialize_aide
