@@ -1253,3 +1253,564 @@ initialize_aide() {
 
 # Appel de la fonction après l'installation
 initialize_aide
+
+# Exécution de toutes les vérifications CIS
+log_message "=== Début des vérifications CIS ==="
+
+# Section 1 - Configuration système initiale
+log_message "=== Section 1: Configuration système initiale ==="
+# 1.1 Filesystem configuration (déjà fait)
+# 1.2-1.8 Autres vérifications de la section 1
+check_partition "/tmp" "nodev,nosuid,noexec"
+check_partition "/var" "nodev"
+check_partition "/var/tmp" "nodev,nosuid,noexec"
+check_partition "/home" "nodev"
+check_partition "/dev/shm" "nodev,nosuid,noexec"
+
+# Section 2 - Services
+log_message "=== Section 2: Services ==="
+check_service "xinetd" "disabled"
+check_service "avahi-daemon" "disabled"
+check_service "cups" "disabled"
+check_service "dhcpd" "disabled"
+check_service "slapd" "disabled"
+check_service "nfs" "disabled"
+check_service "rpcbind" "disabled"
+check_service "named" "disabled"
+check_service "vsftpd" "disabled"
+check_service "httpd" "disabled"
+check_service "dovecot" "disabled"
+check_service "smb" "disabled"
+check_service "squid" "disabled"
+check_service "snmpd" "disabled"
+check_service "postfix" "disabled"
+check_service "ypserv" "disabled"
+check_service "auditd" "enabled"
+check_service "crond" "enabled"
+check_service "firewalld" "enabled"
+
+# Section 3 - Configuration réseau
+log_message "=== Section 3: Configuration réseau ==="
+check_sysctl "net.ipv4.ip_forward" "0"
+check_sysctl "net.ipv4.conf.all.send_redirects" "0"
+check_sysctl "net.ipv4.conf.default.send_redirects" "0"
+check_sysctl "net.ipv4.conf.all.accept_redirects" "0"
+check_sysctl "net.ipv4.conf.default.accept_redirects" "0"
+check_sysctl "net.ipv4.icmp_echo_ignore_broadcasts" "1"
+check_sysctl "net.ipv4.tcp_syncookies" "1"
+
+# Section 5 - Accès, authentification et autorisation
+log_message "=== Section 5: Accès et authentification ==="
+check_file_permissions "/etc/passwd" "root" "root" "644"
+check_file_permissions "/etc/shadow" "root" "root" "000"
+check_file_permissions "/etc/group" "root" "root" "644"
+check_file_permissions "/etc/gshadow" "root" "root" "000"
+check_file_permissions "/etc/ssh/sshd_config" "root" "root" "600"
+
+# Section 6 - Maintenance système
+log_message "=== Section 6: Maintenance système ==="
+check_users
+check_home_directories
+
+log_message "=== Fin des vérifications CIS ==="
+
+# Génération du rapport final
+print_summary
+
+# Fonction de vérification des fichiers SUID/SGID
+check_suid_sgid() {
+    log_message "=== Vérification des fichiers SUID/SGID ==="
+    
+    # Recherche des fichiers SUID
+    log_message "Recherche des fichiers SUID..."
+    find / -xdev -type f -perm -4000 2>/dev/null | while read -r file; do
+        log_message "ATTENTION: Fichier SUID trouvé: $file"
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    done
+
+    # Recherche des fichiers SGID
+    log_message "Recherche des fichiers SGID..."
+    find / -xdev -type f -perm -2000 2>/dev/null | while read -r file; do
+        log_message "ATTENTION: Fichier SGID trouvé: $file"
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    done
+}
+
+# Fonction de vérification des fichiers world-writable
+check_world_writable() {
+    log_message "=== Vérification des fichiers world-writable ==="
+    
+    find / -xdev -type f -perm -0002 2>/dev/null | while read -r file; do
+        log_message "FAIL: Fichier world-writable trouvé: $file"
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        
+        if [ "$MODE_AUDIT" = false ]; then
+            log_message "Application: Correction des permissions du fichier $file"
+            chmod o-w "$file"
+        fi
+    done
+}
+
+# Fonction de vérification des fichiers sans propriétaire/groupe
+check_unowned_files() {
+    log_message "=== Vérification des fichiers sans propriétaire/groupe ==="
+    
+    # Fichiers sans propriétaire
+    find / -xdev -nouser 2>/dev/null | while read -r file; do
+        log_message "FAIL: Fichier sans propriétaire trouvé: $file"
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    done
+
+    # Fichiers sans groupe
+    find / -xdev -nogroup 2>/dev/null | while read -r file; do
+        log_message "FAIL: Fichier sans groupe trouvé: $file"
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    done
+}
+
+# Fonction de vérification du PATH root
+check_root_path() {
+    log_message "=== Vérification du PATH root ==="
+    
+    if [ "$PATH" = "${PATH%::*}" ] && [ "$PATH" = "${PATH%:}" ] && [ "$PATH" = "${PATH#:}" ]; then
+        log_message "PASS: Le PATH ne contient pas :: ou début/fin :"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    else
+        log_message "FAIL: Le PATH contient :: ou début/fin :"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    fi
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+
+    echo "$PATH" | tr ':' '\n' | while read -r dir; do
+        if [ -d "$dir" ]; then
+            if [ "$(stat -c %u "$dir")" != "0" ]; then
+                log_message "FAIL: Le répertoire $dir du PATH n'appartient pas à root"
+                FAILED_CHECKS=$((FAILED_CHECKS + 1))
+            fi
+            if [ -w "$dir" ] && [ ! -k "$dir" ]; then
+                log_message "FAIL: Le répertoire $dir du PATH est world-writable"
+                FAILED_CHECKS=$((FAILED_CHECKS + 1))
+            fi
+        else
+            log_message "FAIL: Le répertoire $dir du PATH n'existe pas"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        fi
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    done
+}
+
+# Fonction de vérification des fichiers dot
+check_dot_files() {
+    log_message "=== Vérification des fichiers dot ==="
+    
+    while IFS=: read -r user pass uid gid desc home shell; do
+        if [ "$uid" -ge 1000 ] && [ -d "$home" ]; then
+            # Vérification .forward
+            if [ -f "${home}/.forward" ]; then
+                log_message "FAIL: Fichier .forward trouvé pour $user"
+                FAILED_CHECKS=$((FAILED_CHECKS + 1))
+            fi
+            
+            # Vérification .netrc
+            if [ -f "${home}/.netrc" ]; then
+                log_message "FAIL: Fichier .netrc trouvé pour $user"
+                if [ "$(stat -c %a "${home}/.netrc")" != "600" ]; then
+                    log_message "FAIL: Permissions incorrectes sur ${home}/.netrc"
+                fi
+                FAILED_CHECKS=$((FAILED_CHECKS + 1))
+            fi
+            
+            # Vérification .rhosts
+            if [ -f "${home}/.rhosts" ]; then
+                log_message "FAIL: Fichier .rhosts trouvé pour $user"
+                FAILED_CHECKS=$((FAILED_CHECKS + 1))
+            fi
+            
+            TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+        fi
+    done < /etc/passwd
+}
+
+# Fonction de vérification des paramètres du noyau
+check_kernel_parameters() {
+    log_message "=== Vérification des paramètres du noyau ==="
+    
+    # Liste des paramètres à vérifier avec leurs valeurs attendues
+    declare -A params=(
+        ["kernel.randomize_va_space"]="2"
+        ["kernel.exec-shield"]="1"
+        ["kernel.dmesg_restrict"]="1"
+        ["kernel.kptr_restrict"]="2"
+        ["kernel.sysrq"]="0"
+        ["kernel.core_uses_pid"]="1"
+    )
+    
+    for param in "${!params[@]}"; do
+        check_sysctl "$param" "${params[$param]}"
+    done
+}
+
+# Fonction de vérification des règles de pare-feu
+check_firewall_rules() {
+    log_message "=== Vérification des règles de pare-feu ==="
+    
+    # Vérification si firewalld est actif
+    if ! systemctl is-active --quiet firewalld; then
+        log_message "FAIL: firewalld n'est pas actif"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    else
+        log_message "PASS: firewalld est actif"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    fi
+    
+    # Vérification des règles par défaut
+    if firewall-cmd --get-default-zone | grep -q "public"; then
+        log_message "PASS: La zone par défaut est public"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    else
+        log_message "FAIL: La zone par défaut n'est pas public"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    fi
+    
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 2))
+}
+
+# Fonction de vérification de la configuration d'audit
+check_audit_config() {
+    log_message "=== Vérification de la configuration d'audit ==="
+    
+    # Vérification du service auditd
+    if ! systemctl is-active --quiet auditd; then
+        log_message "FAIL: auditd n'est pas actif"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    else
+        log_message "PASS: auditd est actif"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    fi
+    
+    # Vérification des règles d'audit
+    if [ ! -f /etc/audit/rules.d/audit.rules ]; then
+        log_message "FAIL: Fichier de règles d'audit manquant"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    else
+        log_message "PASS: Fichier de règles d'audit présent"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    fi
+    
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 2))
+}
+
+# Fonction de vérification de la configuration du système
+check_system_config() {
+    log_message "=== Vérification de la configuration système ==="
+    
+    # Vérification du mode SELINUX
+    local selinux_config=$(grep '^SELINUX=' /etc/selinux/config)
+    if [ "$selinux_config" != "SELINUX=enforcing" ]; then
+        log_message "FAIL: SELINUX n'est pas en mode enforcing"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    else
+        log_message "PASS: SELINUX est en mode enforcing"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    fi
+    
+    # Vérification de la politique SELINUX
+    local selinux_policy=$(grep '^SELINUXTYPE=' /etc/selinux/config)
+    if [ "$selinux_policy" != "SELINUXTYPE=targeted" ]; then
+        log_message "FAIL: La politique SELINUX n'est pas 'targeted'"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    else
+        log_message "PASS: La politique SELINUX est 'targeted'"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    fi
+    
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 2))
+}
+
+# Fonction de vérification de la sécurité réseau avancée
+check_network_security() {
+    log_message "=== Vérification de la sécurité réseau avancée ==="
+    
+    # Vérification des paramètres réseau supplémentaires
+    local network_params=(
+        "net.ipv4.conf.all.accept_source_route=0"
+        "net.ipv4.conf.default.accept_source_route=0"
+        "net.ipv4.conf.all.accept_redirects=0"
+        "net.ipv4.conf.default.accept_redirects=0"
+        "net.ipv4.conf.all.secure_redirects=0"
+        "net.ipv4.conf.default.secure_redirects=0"
+        "net.ipv4.conf.all.log_martians=1"
+        "net.ipv4.conf.default.log_martians=1"
+        "net.ipv4.icmp_echo_ignore_broadcasts=1"
+        "net.ipv4.icmp_ignore_bogus_error_responses=1"
+        "net.ipv4.conf.all.rp_filter=1"
+        "net.ipv4.conf.default.rp_filter=1"
+        "net.ipv4.tcp_syncookies=1"
+        "net.ipv6.conf.all.accept_ra=0"
+        "net.ipv6.conf.default.accept_ra=0"
+        "net.ipv6.conf.all.accept_redirects=0"
+        "net.ipv6.conf.default.accept_redirects=0"
+    )
+    
+    for param in "${network_params[@]}"; do
+        local key="${param%=*}"
+        local value="${param#*=}"
+        check_sysctl "$key" "$value"
+    done
+    
+    # Vérification de la configuration TCP Wrappers
+    if [ ! -f "/etc/hosts.allow" ] || [ ! -f "/etc/hosts.deny" ]; then
+        log_message "FAIL: Fichiers TCP Wrappers manquants"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    else
+        log_message "PASS: Fichiers TCP Wrappers présents"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    fi
+    
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+}
+
+# Fonction de vérification des protocoles réseau inutilisés
+check_unused_protocols() {
+    log_message "=== Vérification des protocoles réseau inutilisés ==="
+    
+    local protocols=("dccp" "sctp" "rds" "tipc")
+    
+    for protocol in "${protocols[@]}"; do
+        if lsmod | grep -q "^$protocol"; then
+            log_message "FAIL: Le protocole $protocol est chargé"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        else
+            log_message "PASS: Le protocole $protocol n'est pas chargé"
+            PASSED_CHECKS=$((PASSED_CHECKS + 1))
+        fi
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    done
+}
+
+# Fonction de vérification des services réseau
+check_network_services() {
+    log_message "=== Vérification des services réseau ==="
+    
+    local services=(
+        "telnet"
+        "rsh"
+        "rlogin"
+        "rexec"
+        "talk"
+        "tftp"
+        "xinetd"
+    )
+    
+    for service in "${services[@]}"; do
+        if systemctl is-enabled "$service" &>/dev/null; then
+            log_message "FAIL: Le service $service est activé"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        else
+            log_message "PASS: Le service $service est désactivé"
+            PASSED_CHECKS=$((PASSED_CHECKS + 1))
+        fi
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    done
+}
+
+# Fonction de vérification de la politique de mots de passe
+check_password_policy() {
+    log_message "=== Vérification de la politique de mots de passe ==="
+    
+    # Vérification des paramètres dans /etc/login.defs
+    local params=(
+        "PASS_MAX_DAYS 90"
+        "PASS_MIN_DAYS 7"
+        "PASS_WARN_AGE 7"
+    )
+    
+    for param in "${params[@]}"; do
+        local key="${param%% *}"
+        local value="${param#* }"
+        local current=$(grep "^$key" /etc/login.defs | awk '{print $2}')
+        
+        if [ "$current" != "$value" ]; then
+            log_message "FAIL: $key est configuré à $current (attendu: $value)"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        else
+            log_message "PASS: $key est correctement configuré"
+            PASSED_CHECKS=$((PASSED_CHECKS + 1))
+        fi
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    done
+    
+    # Vérification de la configuration PAM
+    if ! grep -q "pam_pwquality.so" /etc/pam.d/system-auth; then
+        log_message "FAIL: pam_pwquality n'est pas configuré"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    else
+        log_message "PASS: pam_pwquality est configuré"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    fi
+    
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+}
+
+# Fonction de vérification des comptes système
+check_system_accounts() {
+    log_message "=== Vérification des comptes système ==="
+    
+    # Vérification des comptes système avec shell de connexion
+    awk -F: '($3 < 1000) {print $1 " " $7}' /etc/passwd | while read -r user shell; do
+        if [ "$shell" != "/sbin/nologin" ] && [ "$shell" != "/bin/false" ] && [ "$user" != "root" ]; then
+            log_message "FAIL: Le compte système $user a un shell de connexion ($shell)"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        fi
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    done
+    
+    # Vérification des comptes sans mot de passe
+    awk -F: '($2 == "" ) { print $1 }' /etc/shadow | while read -r user; do
+        if [ -n "$user" ]; then
+            log_message "FAIL: L'utilisateur $user n'a pas de mot de passe"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        fi
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    done
+}
+
+# Fonction de vérification des groupes
+check_groups() {
+    log_message "=== Vérification des groupes ==="
+    
+    # Vérification des GID en double
+    local duplicate_gids=$(cut -d: -f3 /etc/group | sort | uniq -d)
+    if [ -n "$duplicate_gids" ]; then
+        log_message "FAIL: GIDs en double trouvés: $duplicate_gids"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    else
+        log_message "PASS: Pas de GIDs en double"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    fi
+    
+    # Vérification des noms de groupe en double
+    local duplicate_groups=$(cut -d: -f1 /etc/group | sort | uniq -d)
+    if [ -n "$duplicate_groups" ]; then
+        log_message "FAIL: Noms de groupe en double trouvés: $duplicate_groups"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    else
+        log_message "PASS: Pas de noms de groupe en double"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    fi
+    
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 2))
+}
+
+# Fonction de vérification des permissions des fichiers de configuration
+check_config_files() {
+    log_message "=== Vérification des permissions des fichiers de configuration ==="
+    
+    local files=(
+        "/etc/passwd:644"
+        "/etc/shadow:000"
+        "/etc/group:644"
+        "/etc/gshadow:000"
+        "/etc/passwd-:600"
+        "/etc/shadow-:600"
+        "/etc/group-:600"
+        "/etc/gshadow-:600"
+        "/etc/ssh/sshd_config:600"
+        "/etc/crontab:600"
+        "/etc/cron.hourly:700"
+        "/etc/cron.daily:700"
+        "/etc/cron.weekly:700"
+        "/etc/cron.monthly:700"
+        "/etc/cron.d:700"
+    )
+    
+    for file_entry in "${files[@]}"; do
+        local file="${file_entry%:*}"
+        local perms="${file_entry#*:}"
+        
+        if [ -f "$file" ]; then
+            local current_perms=$(stat -c %a "$file")
+            if [ "$current_perms" != "$perms" ]; then
+                log_message "FAIL: Permissions incorrectes pour $file ($current_perms, attendu: $perms)"
+                FAILED_CHECKS=$((FAILED_CHECKS + 1))
+            else
+                log_message "PASS: Permissions correctes pour $file"
+                PASSED_CHECKS=$((PASSED_CHECKS + 1))
+            fi
+        else
+            log_message "FAIL: Fichier $file manquant"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        fi
+        TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    done
+}
+
+# Ajout des nouvelles vérifications
+check_password_policy
+check_system_accounts
+check_groups
+check_config_files
+
+# Exécution de toutes les vérifications dans l'ordre
+log_message "=== Début des vérifications complètes CIS ==="
+
+# Section 1 - Configuration système initiale
+check_filesystem_modules
+check_partition "/tmp" "nodev,nosuid,noexec"
+check_partition "/var" "nodev"
+check_partition "/var/tmp" "nodev,nosuid,noexec"
+check_partition "/home" "nodev"
+check_partition "/dev/shm" "nodev,nosuid,noexec"
+
+# Section 2 - Services
+check_service "xinetd" "disabled"
+check_service "avahi-daemon" "disabled"
+check_service "cups" "disabled"
+check_service "dhcpd" "disabled"
+check_service "slapd" "disabled"
+check_service "nfs" "disabled"
+check_service "rpcbind" "disabled"
+check_service "named" "disabled"
+check_service "vsftpd" "disabled"
+check_service "httpd" "disabled"
+check_service "dovecot" "disabled"
+check_service "smb" "disabled"
+check_service "squid" "disabled"
+check_service "snmpd" "disabled"
+check_service "postfix" "disabled"
+check_service "ypserv" "disabled"
+check_service "auditd" "enabled"
+check_service "crond" "enabled"
+check_service "firewalld" "enabled"
+
+# Section 3 - Configuration réseau
+check_network_security
+check_unused_protocols
+check_network_services
+
+# Section 4 - Journalisation et audit
+check_audit_config
+
+# Section 5 - Accès et authentification
+check_password_policy
+check_system_accounts
+check_groups
+
+# Section 6 - Maintenance système
+check_suid_sgid
+check_world_writable
+check_unowned_files
+check_root_path
+check_dot_files
+check_kernel_parameters
+check_config_files
+
+log_message "=== Fin des vérifications CIS ==="
+
+# Génération du rapport final
+print_summary
