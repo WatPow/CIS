@@ -349,6 +349,11 @@ main() {
     log_message "Début de l'audit CIS"
     log_message "===================="
 
+    # Réinitialisation des compteurs
+    FAILED_CHECKS=0
+    PASSED_CHECKS=0
+    TOTAL_CHECKS=0
+
     # Export des variables pour les sous-scripts
     export FAILED_CHECKS
     export PASSED_CHECKS
@@ -367,8 +372,27 @@ main() {
     for section in "${sections[@]}"; do
         if [ -f "sections/$section" ]; then
             log_message "Exécution de la section: $section"
+            
+            # Sauvegarde des compteurs avant l'exécution de la section
+            local prev_total=$TOTAL_CHECKS
+            local prev_passed=$PASSED_CHECKS
+            local prev_failed=$FAILED_CHECKS
+            
             # Exécution dans le même environnement shell
             . "sections/$section"
+            
+            # Vérification de la cohérence après l'exécution
+            local new_checks=$((TOTAL_CHECKS - prev_total))
+            local new_passed=$((PASSED_CHECKS - prev_passed))
+            local new_failed=$((FAILED_CHECKS - prev_failed))
+            
+            if [ $new_checks -ne $((new_passed + new_failed)) ]; then
+                log_message "ERREUR: Incohérence dans le comptage pour la section $section"
+                log_message "Nouveaux tests: $new_checks"
+                log_message "Nouveaux succès: $new_passed"
+                log_message "Nouveaux échecs: $new_failed"
+            fi
+            
             if [ $? -ne 0 ]; then
                 log_message "ERREUR: Échec de l'exécution de $section"
             fi
@@ -376,6 +400,13 @@ main() {
             log_message "ERREUR: Section non trouvée: $section"
         fi
     done
+
+    # Vérification finale de la cohérence
+    if [ $TOTAL_CHECKS -ne $((PASSED_CHECKS + FAILED_CHECKS)) ]; then
+        log_message "ERREUR: Incohérence dans le comptage final"
+        log_message "Total des vérifications: $TOTAL_CHECKS"
+        log_message "Total succès + échecs: $((PASSED_CHECKS + FAILED_CHECKS))"
+    fi
 
     # Génération du rapport final
     log_message "===================="
