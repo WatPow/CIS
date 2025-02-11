@@ -1362,6 +1362,89 @@ function check_root_login_controls() {
     fi
 }
 
+# Fonction de vérification des permissions des fichiers système
+function check_system_file_permissions() {
+    log_message "=== 6.1 Vérification des permissions des fichiers système ==="
+    
+    # 6.1.2 Ensure permissions on /etc/passwd are configured
+    check_file_permissions "/etc/passwd" "root" "root" "644"
+    
+    # 6.1.3 Ensure permissions on /etc/shadow are configured
+    check_file_permissions "/etc/shadow" "root" "root" "000"
+    
+    # 6.1.4 Ensure permissions on /etc/group are configured
+    check_file_permissions "/etc/group" "root" "root" "644"
+    
+    # 6.1.5 Ensure permissions on /etc/gshadow are configured
+    check_file_permissions "/etc/gshadow" "root" "root" "000"
+    
+    # 6.1.6 Ensure permissions on /etc/passwd- are configured
+    check_file_permissions "/etc/passwd-" "root" "root" "644"
+    
+    # 6.1.7 Ensure permissions on /etc/shadow- are configured
+    check_file_permissions "/etc/shadow-" "root" "root" "000"
+    
+    # 6.1.8 Ensure permissions on /etc/group- are configured
+    check_file_permissions "/etc/group-" "root" "root" "644"
+    
+    # 6.1.9 Ensure permissions on /etc/gshadow- are configured
+    check_file_permissions "/etc/gshadow-" "root" "root" "000"
+}
+
+# Fonction de vérification des paramètres utilisateurs et groupes
+function check_user_group_settings() {
+    log_message "=== 6.2 Vérification des paramètres utilisateurs et groupes ==="
+    
+    # 6.2.1 Ensure password fields are not empty
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if ! awk -F: '($2 == "" ) { print $1 " does not have a password "}' /etc/shadow | grep -q .; then
+        log_message "PASS: Tous les utilisateurs ont un mot de passe"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    else
+        log_message "FAIL: Certains utilisateurs n'ont pas de mot de passe"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    fi
+    
+    # 6.2.2 Ensure no legacy "+" entries exist in /etc/passwd
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if ! grep -q '^+:' /etc/passwd; then
+        log_message "PASS: Pas d'entrées '+' dans /etc/passwd"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    else
+        log_message "FAIL: Entrées '+' trouvées dans /etc/passwd"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    fi
+    
+    # 6.2.3 Ensure root PATH Integrity
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if echo $PATH | grep -q "::"; then
+        log_message "FAIL: Le PATH contient des entrées vides"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    elif echo $PATH | grep -q ":$"; then
+        log_message "FAIL: Le PATH se termine par :"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    else
+        log_message "PASS: Le PATH est correctement configuré"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    fi
+    
+    # 6.2.4 Ensure all users' home directories exist
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    local missing_homes=0
+    while IFS=: read -r user _ uid _ _ home _; do
+        if [ "$uid" -ge 1000 ] && [ ! -d "$home" ]; then
+            log_message "FAIL: Le répertoire home $home de l'utilisateur $user n'existe pas"
+            missing_homes=1
+        fi
+    done < /etc/passwd
+    if [ $missing_homes -eq 0 ]; then
+        log_message "PASS: Tous les répertoires home existent"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    else
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    fi
+}
+
 # Fonction de rapport final
 function print_summary() {
     local end_time=$(date +%s)
