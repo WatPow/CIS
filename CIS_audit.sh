@@ -41,13 +41,13 @@ function check_prerequisites() {
     if ! df -h / >/dev/null 2>&1; then
         log_message "ERROR: Impossible de vérifier l'espace disque"
         exit 1
-    }
+    fi
     
     SPACE=$(df -h / | awk 'NR==2 {print $4}' | sed 's/G//')
     if [ -z "$SPACE" ]; then
         log_message "ERROR: Impossible de lire l'espace disque disponible"
         exit 1
-    }
+    fi
     
     if [ "${SPACE%.*}" -lt 1 ]; then
         log_message "WARNING: Espace disque faible (< 1GB)"
