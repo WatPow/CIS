@@ -25,8 +25,9 @@ log_message() {
     local cis_ref=$(echo "$message" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]*\.*[0-9]*\]')
     local content=$(echo "$message" | sed -E 's/^[A-Z]+: \[CIS [0-9]+\.[0-9]+\.[0-9]+\.*[0-9]*\] //')
     
-    # Formatage du message pour le fichier de log
-    echo "[$timestamp] $message" >> "$LOG_FILE"
+    # Affichage en console et dans le fichier de log
+    echo "[$timestamp] $message" | tee -a "$LOG_FILE"
+    echo "$message" >> "$REPORT_FILE"
     
     # Stockage des échecs pour le rapport HTML
     if [[ "$message" == FAIL:* ]]; then
@@ -81,72 +82,259 @@ generate_html_report() {
     
     cat > "$HTML_REPORT" << EOF
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rapport d'audit CIS</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            margin: 20px;
-            background-color: #f5f5f5;
-            color: #333;
+        :root {
+            --primary-color: #2c3e50;
+            --success-color: #27ae60;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
+            --background-color: #f5f7fa;
+            --card-background: #ffffff;
+            --text-color: #2c3e50;
+            --border-radius: 8px;
+            --shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            padding: 20px;
+        }
+
         .container {
             max-width: 1200px;
             margin: 0 auto;
-            background-color: white;
-            padding: 20px;
-            border-radius: 5px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
-        .failure-item {
-            margin: 15px 0;
-            padding: 15px;
-            background-color: #fff;
-            border-left: 4px solid #dc3545;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+
+        .header {
+            background-color: var(--card-background);
+            padding: 30px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            margin-bottom: 30px;
+            text-align: center;
         }
-        .failure-header {
-            margin-bottom: 8px;
+
+        .header h1 {
+            color: var(--primary-color);
+            font-size: 2.5em;
+            margin-bottom: 10px;
         }
-        .cis-ref {
-            font-weight: bold;
-            color: #2c3e50;
-            background-color: #e9ecef;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 0.9em;
-        }
-        .failure-message {
-            margin-top: 5px;
+
+        .header p {
             color: #666;
-            font-size: 0.95em;
-            line-height: 1.4;
+            font-size: 1.1em;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background-color: var(--card-background);
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            text-align: center;
+        }
+
+        .stat-card h3 {
+            font-size: 1.1em;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .stat-card .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+
+        .progress-container {
+            background-color: var(--card-background);
+            padding: 30px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            margin-bottom: 30px;
+        }
+
+        .progress-bar {
+            height: 25px;
+            background-color: #ecf0f1;
+            border-radius: 12.5px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: ${compliance_rate}%;
+            background-color: var(--success-color);
+            transition: width 1s ease-in-out;
+        }
+
+        .failures-section {
+            background-color: var(--card-background);
+            padding: 30px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+        }
+
+        .failures-section h2 {
+            color: var(--primary-color);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #eee;
+        }
+
+        .failure-item {
+            background-color: #fff;
+            border-left: 4px solid var(--danger-color);
+            margin: 15px 0;
+            padding: 20px;
+            border-radius: 0 var(--border-radius) var(--border-radius) 0;
+            box-shadow: var(--shadow);
+        }
+
+        .failure-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .cis-ref {
+            background-color: #f8f9fa;
+            color: var(--primary-color);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.9em;
+            margin-right: 10px;
+        }
+
+        .failure-message {
+            color: #555;
+            font-size: 1em;
+            line-height: 1.5;
+        }
+
+        .section-title {
+            color: var(--primary-color);
+            font-size: 1.5em;
+            margin: 30px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #eee;
+        }
+
+        .execution-details {
+            background-color: var(--card-background);
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            margin: 20px 0;
+        }
+
+        .execution-details h3 {
+            color: var(--primary-color);
+            margin-bottom: 15px;
+        }
+
+        .execution-details p {
+            margin: 10px 0;
+            color: #666;
+        }
+
+        .execution-details strong {
+            color: var(--primary-color);
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+            
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Rapport d'audit CIS</h1>
-        
-        <div class="summary">
-            <h2>Résumé</h2>
-            <p>Total des vérifications: <strong>$TOTAL_CHECKS</strong></p>
-            <p>Vérifications réussies: <strong>$PASSED_CHECKS</strong></p>
-            <p>Vérifications échouées: <strong>$FAILED_CHECKS</strong></p>
-            <p>Taux de conformité: <strong>${compliance_rate}%</strong></p>
+        <div class="header">
+            <h1>Rapport d'audit CIS</h1>
+            <p>Généré le $(date -d @$end_time '+%d/%m/%Y à %H:%M:%S')</p>
         </div>
 
-        <div class="failures">
+        <div class="dashboard">
+            <div class="stat-card">
+                <h3>Total des vérifications</h3>
+                <div class="value">$TOTAL_CHECKS</div>
+            </div>
+            <div class="stat-card">
+                <h3>Vérifications réussies</h3>
+                <div class="value" style="color: var(--success-color)">$PASSED_CHECKS</div>
+            </div>
+            <div class="stat-card">
+                <h3>Vérifications échouées</h3>
+                <div class="value" style="color: var(--danger-color)">$FAILED_CHECKS</div>
+            </div>
+        </div>
+
+        <div class="progress-container">
+            <h2>Taux de conformité</h2>
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+            <p style="text-align: center; font-size: 1.2em;">
+                <strong>${compliance_rate}%</strong> de conformité
+            </p>
+        </div>
+
+        <div class="execution-details">
+            <h3>Détails de l'exécution</h3>
+            <p><strong>Début de l'audit:</strong> $(date -d @$start_time '+%d/%m/%Y %H:%M:%S')</p>
+            <p><strong>Fin de l'audit:</strong> $(date -d @$end_time '+%d/%m/%Y %H:%M:%S')</p>
+            <p><strong>Durée:</strong> ${duration} secondes</p>
+        </div>
+
+        <div class="failures-section">
             <h2>Points de contrôle échoués</h2>
-            $(cat "$TEMP_FAILS")
+            <div class="failures-content">
+                $(if [ -s "$TEMP_FAILS" ]; then
+                    cat "$TEMP_FAILS"
+                else
+                    echo "<p style='text-align: center; color: var(--success-color); padding: 20px;'>Aucun échec détecté</p>"
+                fi)
+            </div>
         </div>
     </div>
 </body>
 </html>
 EOF
+
+    chmod 644 "$HTML_REPORT"
+    log_message "Rapport HTML généré: $HTML_REPORT"
 }
 
 # Fonction principale
