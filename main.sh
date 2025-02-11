@@ -62,6 +62,10 @@ generate_html_report() {
     if [ "$TOTAL_CHECKS" -gt 0 ]; then
         compliance_rate=$(( (PASSED_CHECKS * 100) / TOTAL_CHECKS ))
     fi
+
+    # Création d'un fichier temporaire pour stocker les échecs
+    local temp_fails=$(mktemp)
+    grep "FAIL:" "$REPORT_FILE" > "$temp_fails"
     
     cat > "$HTML_REPORT" << EOF
 <!DOCTYPE html>
@@ -84,8 +88,10 @@ generate_html_report() {
             border-radius: 5px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
-        h1 {
+        h1, h2, h3 {
             color: #2c3e50;
+        }
+        h1 {
             text-align: center;
         }
         .summary {
@@ -119,6 +125,22 @@ generate_html_report() {
         .passed {
             color: #28a745;
         }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        .failure-item {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #fff;
+            border-left: 4px solid #dc3545;
+        }
+        .cis-ref {
+            font-weight: bold;
+            color: #2c3e50;
+        }
     </style>
 </head>
 <body>
@@ -148,14 +170,76 @@ generate_html_report() {
             <p>Durée: ${duration} secondes</p>
         </div>
 
-        <div class="log-content">
-            <h3>Journal détaillé</h3>
-            <pre>$(cat "$REPORT_FILE")</pre>
+        <div class="failures">
+            <h2>Points de contrôle échoués</h2>
+
+            <div class="section">
+                <h3>1. Configuration système initiale</h3>
+                $(grep "FAIL: \[CIS 1" "$temp_fails" | while read -r line; do
+                    echo "<div class='failure-item'>"
+                    echo "<span class='cis-ref'>$(echo "$line" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]\]')</span>"
+                    echo "<p>$line</p>"
+                    echo "</div>"
+                done)
+            </div>
+
+            <div class="section">
+                <h3>2. Services</h3>
+                $(grep "FAIL: \[CIS 2" "$temp_fails" | while read -r line; do
+                    echo "<div class='failure-item'>"
+                    echo "<span class='cis-ref'>$(echo "$line" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]\]')</span>"
+                    echo "<p>$line</p>"
+                    echo "</div>"
+                done)
+            </div>
+
+            <div class="section">
+                <h3>3. Configuration réseau</h3>
+                $(grep "FAIL: \[CIS 3" "$temp_fails" | while read -r line; do
+                    echo "<div class='failure-item'>"
+                    echo "<span class='cis-ref'>$(echo "$line" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]\]')</span>"
+                    echo "<p>$line</p>"
+                    echo "</div>"
+                done)
+            </div>
+
+            <div class="section">
+                <h3>4. Journalisation et audit</h3>
+                $(grep "FAIL: \[CIS 4" "$temp_fails" | while read -r line; do
+                    echo "<div class='failure-item'>"
+                    echo "<span class='cis-ref'>$(echo "$line" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]\]')</span>"
+                    echo "<p>$line</p>"
+                    echo "</div>"
+                done)
+            </div>
+
+            <div class="section">
+                <h3>5. Accès et authentification</h3>
+                $(grep "FAIL: \[CIS 5" "$temp_fails" | while read -r line; do
+                    echo "<div class='failure-item'>"
+                    echo "<span class='cis-ref'>$(echo "$line" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]\]')</span>"
+                    echo "<p>$line</p>"
+                    echo "</div>"
+                done)
+            </div>
+
+            <div class="section">
+                <h3>6. Maintenance système</h3>
+                $(grep "FAIL: \[CIS 6" "$temp_fails" | while read -r line; do
+                    echo "<div class='failure-item'>"
+                    echo "<span class='cis-ref'>$(echo "$line" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]\]')</span>"
+                    echo "<p>$line</p>"
+                    echo "</div>"
+                done)
+            </div>
         </div>
     </div>
 </body>
 </html>
 EOF
+
+    # Nettoyage
+    rm -f "$temp_fails"
 
     chmod 644 "$HTML_REPORT"
     log_message "Rapport HTML généré: $HTML_REPORT"

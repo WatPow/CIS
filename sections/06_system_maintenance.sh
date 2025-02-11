@@ -3,165 +3,210 @@
 # Section 6 - Maintenance du système
 log_message "=== 6 Maintenance du système ==="
 
-# 6.1 Configuration du système de fichiers
-log_message "=== 6.1 Configuration du système de fichiers ==="
+# 6.1 Permissions des fichiers système
+log_message "=== 6.1 Permissions des fichiers système ==="
 
-# 6.1.1 Vérification des partitions avec des options restrictives
-check_mount_options() {
-    local mount_point=$1
-    local expected_options=$2
-    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+# Fonction pour vérifier les permissions des fichiers système
+check_file_permissions() {
+    local file=$1
+    local expected_perms=$2
+    local expected_owner=$3
+    local expected_group=$4
+    local cis_ref=$5
     
-    if mount | grep -q " $mount_point "; then
-        current_options=$(mount | grep " $mount_point " | awk '{print $6}' | tr -d '()')
-        if echo "$current_options" | grep -q "$expected_options"; then
-            log_message "PASS: $mount_point a les options requises"
-            PASSED_CHECKS=$((PASSED_CHECKS + 1))
-        else
-            log_message "FAIL: $mount_point n'a pas les options requises (actuel: $current_options, attendu: $expected_options)"
-            FAILED_CHECKS=$((FAILED_CHECKS + 1))
-        fi
-    else
-        log_message "FAIL: $mount_point n'est pas monté"
-        FAILED_CHECKS=$((FAILED_CHECKS + 1))
-    fi
-}
-
-# Vérification des points de montage critiques
-check_mount_options "/tmp" "nosuid,nodev,noexec"
-check_mount_options "/var" "nosuid"
-check_mount_options "/var/tmp" "nosuid,nodev,noexec"
-check_mount_options "/var/log" "nosuid,nodev,noexec"
-check_mount_options "/var/log/audit" "nosuid,nodev,noexec"
-check_mount_options "/home" "nosuid,nodev"
-check_mount_options "/dev/shm" "nosuid,nodev,noexec"
-
-# 6.2 Vérification des fichiers utilisateur
-log_message "=== 6.2 Vérification des fichiers utilisateur ==="
-
-# 6.2.1 Vérification des permissions des fichiers de configuration utilisateur
-check_user_files() {
-    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
-    local file_type=$1
-    local max_perm=$2
-    
-    find /home -name "$file_type" -type f -perm /g+w,o+w 2>/dev/null | while read -r file; do
-        log_message "FAIL: $file a des permissions trop permissives"
-        FAILED_CHECKS=$((FAILED_CHECKS + 1))
-        return 1
-    done || return
-    
-    log_message "PASS: Tous les fichiers $file_type ont des permissions correctes"
-    PASSED_CHECKS=$((PASSED_CHECKS + 1))
-}
-
-check_user_files ".bashrc" "644"
-check_user_files ".bash_profile" "644"
-check_user_files ".bash_logout" "644"
-
-# 6.3 Vérification des fichiers système
-log_message "=== 6.3 Vérification des fichiers système ==="
-
-# 6.3.1 Vérification des permissions des fichiers système critiques
-system_files=(
-    "/etc/passwd:644"
-    "/etc/shadow:000"
-    "/etc/group:644"
-    "/etc/gshadow:000"
-    "/etc/passwd-:644"
-    "/etc/shadow-:000"
-    "/etc/group-:644"
-    "/etc/gshadow-:000"
-)
-
-for entry in "${system_files[@]}"; do
-    file=$(echo "$entry" | cut -d: -f1)
-    expected_perm=$(echo "$entry" | cut -d: -f2)
     TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
     
     if [ -f "$file" ]; then
-        current_perm=$(stat -c %a "$file")
-        if [ "$current_perm" = "$expected_perm" ]; then
-            log_message "PASS: $file a les permissions correctes ($expected_perm)"
+        local perms=$(stat -c %a "$file")
+        local owner=$(stat -c %U "$file")
+        local group=$(stat -c %G "$file")
+        
+        if [ "$perms" = "$expected_perms" ] && [ "$owner" = "$expected_owner" ] && [ "$group" = "$expected_group" ]; then
+            log_message "PASS: [CIS $cis_ref] Les permissions de $file sont correctes"
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         else
-            log_message "FAIL: $file a des permissions incorrectes (actuel: $current_perm, attendu: $expected_perm)"
+            log_message "FAIL: [CIS $cis_ref] Les permissions de $file sont incorrectes (perms: $perms, owner: $owner, group: $group)"
             FAILED_CHECKS=$((FAILED_CHECKS + 1))
         fi
     else
-        log_message "FAIL: $file n'existe pas"
+        log_message "FAIL: [CIS $cis_ref] Le fichier $file n'existe pas"
         FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    fi
+}
+
+# Vérification des permissions des fichiers système critiques
+check_file_permissions "/etc/passwd" "644" "root" "root" "6.1.1"
+check_file_permissions "/etc/passwd-" "644" "root" "root" "6.1.2"
+check_file_permissions "/etc/group" "644" "root" "root" "6.1.3"
+check_file_permissions "/etc/group-" "644" "root" "root" "6.1.4"
+check_file_permissions "/etc/shadow" "000" "root" "root" "6.1.5"
+check_file_permissions "/etc/shadow-" "000" "root" "root" "6.1.6"
+check_file_permissions "/etc/gshadow" "000" "root" "root" "6.1.7"
+check_file_permissions "/etc/gshadow-" "000" "root" "root" "6.1.8"
+check_file_permissions "/etc/shells" "644" "root" "root" "6.1.9"
+check_file_permissions "/etc/security/opasswd" "600" "root" "root" "6.1.10"
+
+# 6.1.11 Vérification des fichiers world-writable
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+world_writable_files=$(find / -xdev -type f -perm -0002 -print 2>/dev/null)
+if [ -z "$world_writable_files" ]; then
+    log_message "PASS: [CIS 6.1.11] Aucun fichier world-writable trouvé"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+else
+    log_message "FAIL: [CIS 6.1.11] Fichiers world-writable trouvés"
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+fi
+
+# 6.1.12 Vérification des fichiers sans propriétaire
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+unowned_files=$(find / -xdev -nouser -o -nogroup -print 2>/dev/null)
+if [ -z "$unowned_files" ]; then
+    log_message "PASS: [CIS 6.1.12] Aucun fichier sans propriétaire trouvé"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+else
+    log_message "FAIL: [CIS 6.1.12] Fichiers sans propriétaire trouvés"
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+fi
+
+# 6.1.13 Vérification des fichiers SUID/SGID
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+suid_sgid_files=$(find / -xdev -type f \( -perm -4000 -o -perm -2000 \) -print 2>/dev/null)
+log_message "INFO: [CIS 6.1.13] Liste des fichiers SUID/SGID à examiner manuellement:"
+echo "$suid_sgid_files" >> "$LOG_FILE"
+
+# 6.1.14 Audit des permissions des fichiers système
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+log_message "INFO: [CIS 6.1.14] Un audit manuel des permissions des fichiers système est recommandé"
+
+# 6.2 Paramètres des utilisateurs et groupes locaux
+log_message "=== 6.2 Paramètres des utilisateurs et groupes locaux ==="
+
+# 6.2.1 Vérification de l'utilisation des mots de passe shadow
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+if ! grep -q '^[^:]*:[^:]*:' /etc/passwd; then
+    log_message "PASS: [CIS 6.2.1] Tous les comptes utilisent des mots de passe shadow"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+else
+    log_message "FAIL: [CIS 6.2.1] Certains comptes n'utilisent pas de mots de passe shadow"
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+fi
+
+# 6.2.2 Vérification des champs de mot de passe vides
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+if ! awk -F: '($2 == "" ) { print $1 " does not have a password "}' /etc/shadow | grep -q .; then
+    log_message "PASS: [CIS 6.2.2] Aucun compte n'a de mot de passe vide"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+else
+    log_message "FAIL: [CIS 6.2.2] Des comptes ont des mots de passe vides"
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+fi
+
+# 6.2.3 Vérification de la correspondance des groupes
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+for gid in $(cut -d: -f4 /etc/passwd | sort -u); do
+    if ! grep -q "^[^:]*:[^:]*:$gid:" /etc/group; then
+        log_message "FAIL: [CIS 6.2.3] Le GID $gid de /etc/passwd n'existe pas dans /etc/group"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        break
+    fi
+done
+if [ $? -eq 0 ]; then
+    log_message "PASS: [CIS 6.2.3] Tous les groupes dans /etc/passwd existent dans /etc/group"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+fi
+
+# 6.2.4 Vérification des UID dupliqués
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+if ! cut -d: -f3 /etc/passwd | sort | uniq -d | grep -q .; then
+    log_message "PASS: [CIS 6.2.4] Aucun UID dupliqué"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+else
+    log_message "FAIL: [CIS 6.2.4] Des UID dupliqués ont été trouvés"
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+fi
+
+# 6.2.5 Vérification des GID dupliqués
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+if ! cut -d: -f3 /etc/group | sort | uniq -d | grep -q .; then
+    log_message "PASS: [CIS 6.2.5] Aucun GID dupliqué"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+else
+    log_message "FAIL: [CIS 6.2.5] Des GID dupliqués ont été trouvés"
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+fi
+
+# 6.2.6 Vérification des noms d'utilisateur dupliqués
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+if ! cut -d: -f1 /etc/passwd | sort | uniq -d | grep -q .; then
+    log_message "PASS: [CIS 6.2.6] Aucun nom d'utilisateur dupliqué"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+else
+    log_message "FAIL: [CIS 6.2.6] Des noms d'utilisateur dupliqués ont été trouvés"
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+fi
+
+# 6.2.7 Vérification des noms de groupe dupliqués
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+if ! cut -d: -f1 /etc/group | sort | uniq -d | grep -q .; then
+    log_message "PASS: [CIS 6.2.7] Aucun nom de groupe dupliqué"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+else
+    log_message "FAIL: [CIS 6.2.7] Des noms de groupe dupliqués ont été trouvés"
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+fi
+
+# 6.2.8 Vérification de l'intégrité du PATH de root
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+if [ "$(echo $PATH | grep ::)" != "" ] || [ "$(echo $PATH | grep :$)" != "" ]; then
+    log_message "FAIL: [CIS 6.2.8] Le PATH de root contient :: ou se termine par :"
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+else
+    log_message "PASS: [CIS 6.2.8] Le PATH de root est correctement configuré"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+fi
+
+# 6.2.9 Vérification que root est le seul UID 0
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+if [ $(awk -F: '($3 == 0) { print $1 }' /etc/passwd | wc -l) -eq 1 ] && [ $(awk -F: '($3 == 0) { print $1 }' /etc/passwd) = "root" ]; then
+    log_message "PASS: [CIS 6.2.9] root est le seul compte avec UID 0"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+else
+    log_message "FAIL: [CIS 6.2.9] D'autres comptes ont un UID 0"
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+fi
+
+# 6.2.10 Vérification des répertoires home des utilisateurs
+TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+valid_shells="^($(sed 's/\s/\|/g' /etc/shells))$"
+for user in $(awk -F: '($7 ~ /'"$valid_shells"'/) { print $1 " " $6 }' /etc/passwd); do
+    username=$(echo $user | cut -d" " -f1)
+    homedir=$(echo $user | cut -d" " -f2)
+    
+    if [ ! -d "$homedir" ]; then
+        log_message "FAIL: [CIS 6.2.10] Le répertoire home de $username ($homedir) n'existe pas"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        continue
+    fi
+    
+    owner=$(stat -L -c "%U" "$homedir")
+    if [ "$owner" != "$username" ]; then
+        log_message "FAIL: [CIS 6.2.10] Le répertoire home de $username ($homedir) appartient à $owner"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        continue
     fi
 done
 
-# 6.4 Vérification des processus système
-log_message "=== 6.4 Vérification des processus système ==="
-
-# 6.4.1 Vérification des processus sans propriétaire
+# 6.2.11 Vérification des permissions des fichiers dot dans les répertoires home
 TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
-unowned_procs=$(ps -ef | awk '$1=="UNKNOWN" {print $2}')
-if [ -z "$unowned_procs" ]; then
-    log_message "PASS: Aucun processus sans propriétaire trouvé"
-    PASSED_CHECKS=$((PASSED_CHECKS + 1))
-else
-    log_message "FAIL: Processus sans propriétaire trouvés: $unowned_procs"
-    FAILED_CHECKS=$((FAILED_CHECKS + 1))
-fi
-
-# 6.5 Vérification des tâches planifiées
-log_message "=== 6.5 Vérification des tâches planifiées ==="
-
-# 6.5.1 Vérification des tâches cron de root
-TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
-if [ -f /var/spool/cron/root ]; then
-    perms=$(stat -c %a /var/spool/cron/root)
-    if [ "$perms" = "600" ]; then
-        log_message "PASS: Les tâches cron de root ont les bonnes permissions"
-        PASSED_CHECKS=$((PASSED_CHECKS + 1))
-    else
-        log_message "FAIL: Les tâches cron de root ont des permissions incorrectes: $perms"
-        FAILED_CHECKS=$((FAILED_CHECKS + 1))
-    fi
-else
-    log_message "INFO: Pas de tâches cron pour root"
-    PASSED_CHECKS=$((PASSED_CHECKS + 1))
-fi
-
-# 6.6 Vérification de la configuration réseau
-log_message "=== 6.6 Vérification de la configuration réseau ==="
-
-# 6.6.1 Vérification des interfaces en mode promiscuous
-TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
-promisc_interfaces=$(ip link | grep PROMISC)
-if [ -z "$promisc_interfaces" ]; then
-    log_message "PASS: Aucune interface en mode promiscuous"
-    PASSED_CHECKS=$((PASSED_CHECKS + 1))
-else
-    log_message "FAIL: Interfaces en mode promiscuous trouvées: $promisc_interfaces"
-    FAILED_CHECKS=$((FAILED_CHECKS + 1))
-fi
-
-# 6.7 Vérification des services inutiles
-log_message "=== 6.7 Vérification des services inutiles ==="
-
-# Liste des services considérés comme inutiles ou dangereux
-unnecessary_services=(
-    "telnet"
-    "rsh"
-    "rlogin"
-    "rexec"
-    "tftp"
-    "talk"
-    "xinetd"
-)
-
-for service in "${unnecessary_services[@]}"; do
-    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
-    if systemctl is-active "$service" &>/dev/null; then
-        log_message "FAIL: Le service $service est actif"
-        FAILED_CHECKS=$((FAILED_CHECKS + 1))
-    else
-        log_message "PASS: Le service $service est inactif ou non installé"
-        PASSED_CHECKS=$((PASSED_CHECKS + 1))
-    fi
+for dir in $(awk -F: '($7 ~ /'"$valid_shells"'/) { print $6 }' /etc/passwd); do
+    for file in $dir/.[A-Za-z0-9]*; do
+        if [ ! -h "$file" ] && [ -f "$file" ]; then
+            fileperm=$(stat -L -c "%a" "$file")
+            if [ $(( $fileperm & 0022 )) -ne 0 ]; then
+                log_message "FAIL: [CIS 6.2.11] Le fichier $file a des permissions trop permissives: $fileperm"
+                FAILED_CHECKS=$((FAILED_CHECKS + 1))
+                continue 2
+            fi
+        fi
+    done
 done 
