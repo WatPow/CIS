@@ -29,6 +29,17 @@ log_message() {
     echo "[$timestamp] $message" | tee -a "$LOG_FILE"
     echo "$message" >> "$REPORT_FILE"
     
+    # Comptage des tests uniquement pour les messages PASS/FAIL avec référence CIS
+    if [[ -n "$cis_ref" ]]; then
+        if [[ "$message" == PASS:* ]]; then
+            PASSED_CHECKS=$((PASSED_CHECKS + 1))
+            TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+        elif [[ "$message" == FAIL:* ]]; then
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+            TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+        fi
+    fi
+    
     # Stockage des échecs pour le rapport HTML
     if [[ "$message" == FAIL:* ]]; then
         echo "<div class='failure-item'>" >> "$TEMP_FAILS"
