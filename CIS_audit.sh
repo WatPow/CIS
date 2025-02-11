@@ -30,16 +30,37 @@ function log_message() {
 # Fonction de vérification des prérequis
 function check_prerequisites() {
     log_message "Vérification des prérequis..."
+    
+    # Vérification des privilèges root
     if [ "$(id -u)" -ne 0 ]; then
         log_message "ERROR: Ce script doit être exécuté en tant que root"
         exit 1
     fi
     
     # Vérification de l'espace disque
+    if ! df -h / >/dev/null 2>&1; then
+        log_message "ERROR: Impossible de vérifier l'espace disque"
+        exit 1
+    }
+    
     SPACE=$(df -h / | awk 'NR==2 {print $4}' | sed 's/G//')
+    if [ -z "$SPACE" ]; then
+        log_message "ERROR: Impossible de lire l'espace disque disponible"
+        exit 1
+    }
+    
     if [ "${SPACE%.*}" -lt 1 ]; then
         log_message "WARNING: Espace disque faible (< 1GB)"
     fi
+    
+    # Vérification des commandes requises
+    local required_commands=("awk" "grep" "stat" "find" "mount" "systemctl")
+    for cmd in "${required_commands[@]}"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            log_message "ERROR: Commande requise non trouvée: $cmd"
+            exit 1
+        fi
+    done
 }
 
 # Fonction de vérification d'un paramètre
@@ -83,10 +104,16 @@ function check_partition() {
     if ! mount | grep -q " $partition "; then
         log_message "FAIL: La partition $partition n'existe pas"
         FAILED_CHECKS=$((FAILED_CHECKS + 1))
-        return 1
+        return 0
     fi
     
-    local current_options=$(mount | grep " $partition " | awk '{print $6}' | tr -d '()')
+    local current_options=$(mount | grep " $partition " | awk '{print $6}' | tr -d '()') || ""
+    if [ -z "$current_options" ]; then
+        log_message "FAIL: Impossible de lire les options de montage pour $partition"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        return 0
+    fi
+    
     local missing_options=""
     
     for option in $required_options; do
@@ -102,15 +129,22 @@ function check_partition() {
         log_message "PASS: Toutes les options requises sont présentes pour $partition"
         PASSED_CHECKS=$((PASSED_CHECKS + 1))
     fi
+    return 0
 }
 
 # Fonction de vérification des services
 function check_service() {
     local service=$1
-    local expected_state=$2  # enabled ou disabled
+    local expected_state=$2
     
     log_message "=== Vérification du service $service ==="
     TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    
+    if ! command -v systemctl >/dev/null 2>&1; then
+        log_message "WARN: systemctl n'est pas disponible, impossible de vérifier $service"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        return 0
+    }
     
     local current_state=$(systemctl is-enabled "$service" 2>/dev/null || echo "not-found")
     
@@ -127,6 +161,7 @@ function check_service() {
         log_message "FAIL: Le service $service est $current_state (attendu: $expected_state)"
         FAILED_CHECKS=$((FAILED_CHECKS + 1))
     fi
+    return 0
 }
 
 # Fonction de vérification des fichiers
@@ -139,15 +174,27 @@ function check_file_permissions() {
     log_message "=== Vérification des permissions de $file ==="
     TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
     
-    if [ ! -f "$file" ]; then
+    if [ ! -e "$file" ]; then
         log_message "FAIL: Le fichier $file n'existe pas"
         FAILED_CHECKS=$((FAILED_CHECKS + 1))
-        return 1
+        return 0
     fi
     
-    local current_owner=$(stat -c %U "$file")
-    local current_group=$(stat -c %G "$file")
-    local current_perms=$(stat -c %a "$file")
+    if [ ! -r "$file" ]; then
+        log_message "FAIL: Le fichier $file n'est pas lisible"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        return 0
+    }
+    
+    local current_owner=$(stat -c %U "$file" 2>/dev/null || echo "unknown")
+    local current_group=$(stat -c %G "$file" 2>/dev/null || echo "unknown")
+    local current_perms=$(stat -c %a "$file" 2>/dev/null || echo "unknown")
+    
+    if [ "$current_owner" = "unknown" ] || [ "$current_group" = "unknown" ] || [ "$current_perms" = "unknown" ]; then
+        log_message "FAIL: Impossible de lire les permissions pour $file"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        return 0
+    }
     
     if [ "$current_owner" != "$expected_owner" ] || 
        [ "$current_group" != "$expected_group" ] || 
@@ -161,6 +208,7 @@ function check_file_permissions() {
         log_message "PASS: Permissions correctes pour $file"
         PASSED_CHECKS=$((PASSED_CHECKS + 1))
     fi
+    return 0
 }
 
 # Fonction de vérification des paramètres sysctl
