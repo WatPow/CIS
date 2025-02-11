@@ -89,34 +89,46 @@ check_partition_mount "/var/log/audit" "nodev,nosuid,noexec" "1.1.2.7"
 log_message "=== 1.2 Configuration des mises à jour logicielles ==="
 
 # 1.2.1 Ensure GPG keys are configured
-TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
-if rpm -q gpg-pubkey > /dev/null 2>&1; then
-    log_message "PASS: [CIS 1.2.1] Les clés GPG sont configurées"
-    PASSED_CHECKS=$((PASSED_CHECKS + 1))
-else
-    log_message "FAIL: [CIS 1.2.1] Les clés GPG ne sont pas configurées"
-    FAILED_CHECKS=$((FAILED_CHECKS + 1))
-fi
+check_yum_gpg() {
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if rpm -q gpg-pubkey > /dev/null; then
+        log_message "PASS: [CIS 1.2.1] Les clés GPG sont configurées"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    else
+        log_message "FAIL: [CIS 1.2.1] Les clés GPG ne sont pas configurées"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    fi
+}
+
+check_yum_gpg
 
 # 1.2.2 Verify gpgcheck Enabled
-TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
-if grep -q "^gpgcheck=1" /etc/yum.conf && ! grep -q "^gpgcheck=0" /etc/yum.repos.d/*; then
-    log_message "PASS: [CIS 1.2.2] gpgcheck est activé globalement"
-    PASSED_CHECKS=$((PASSED_CHECKS + 1))
-else
-    log_message "FAIL: [CIS 1.2.2] gpgcheck n'est pas activé globalement"
-    FAILED_CHECKS=$((FAILED_CHECKS + 1))
-fi
+check_yum_gpgcheck() {
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if grep -q "^gpgcheck\s*=\s*1" /etc/yum.conf; then
+        log_message "PASS: [CIS 1.2.2] gpgcheck est activé globalement"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    else
+        log_message "FAIL: [CIS 1.2.2] gpgcheck n'est pas activé globalement"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    fi
+}
+
+check_yum_gpgcheck
 
 # 1.2.3 Verify repo_gpgcheck Enabled
-TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
-if grep -q "^repo_gpgcheck=1" /etc/yum.conf && ! grep -q "^repo_gpgcheck=0" /etc/yum.repos.d/*; then
-    log_message "PASS: [CIS 1.2.3] repo_gpgcheck est activé globalement"
-    PASSED_CHECKS=$((PASSED_CHECKS + 1))
-else
-    log_message "FAIL: [CIS 1.2.3] repo_gpgcheck n'est pas activé globalement"
-    FAILED_CHECKS=$((FAILED_CHECKS + 1))
-fi
+check_repo_gpgcheck() {
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if find /etc/yum.repos.d -type f -name "*.repo" -exec grep -l "^repo_gpgcheck\s*=\s*1" {} \; | grep -q .; then
+        log_message "PASS: [CIS 1.2.3] repo_gpgcheck est activé globalement"
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
+    else
+        log_message "FAIL: [CIS 1.2.3] repo_gpgcheck n'est pas activé globalement"
+        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    fi
+}
+
+check_repo_gpgcheck
 
 # 1.2.4 Ensure package manager repositories are configured
 TOTAL_CHECKS=$((TOTAL_CHECKS + 1))

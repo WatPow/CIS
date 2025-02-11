@@ -115,7 +115,6 @@ check_log_permissions() {
     local expected_perms=$2
     local cis_ref=$3
     
-    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
     if [ -f "$log_file" ]; then
         perms=$(stat -c %a "$log_file")
         if [ "$perms" -le "$expected_perms" ]; then
@@ -128,7 +127,10 @@ check_log_permissions() {
     fi
 }
 
-find /var/log -type f -exec check_log_permissions {} 640 "5.1.4" \;
+# Vérification des permissions des fichiers de log
+for log_file in $(find /var/log -type f); do
+    check_log_permissions "$log_file" 640 "5.1.4"
+done
 
 # 5.2 Configuration de l'audit système (auditd)
 log_message "=== 5.2 Configuration de l'audit système ==="

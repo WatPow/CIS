@@ -11,11 +11,30 @@ export TOTAL_CHECKS=0
 export GENERATE_HTML=1
 export start_time=$(date +%s)
 
+# Création des fichiers temporaires
+TEMP_FAILS=$(mktemp)
+trap 'rm -f "$TEMP_FAILS"' EXIT
+
 # Fonction de journalisation
 log_message() {
     local message="$1"
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $message" | tee -a "$LOG_FILE"
-    echo "$message" >> "$REPORT_FILE"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    # Extraction du type de message (PASS/FAIL/INFO) et de la référence CIS
+    local msg_type=$(echo "$message" | grep -o '^[A-Z]\+:')
+    local cis_ref=$(echo "$message" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]*\.*[0-9]*\]')
+    local content=$(echo "$message" | sed -E 's/^[A-Z]+: \[CIS [0-9]+\.[0-9]+\.[0-9]+\.*[0-9]*\] //')
+    
+    # Formatage du message pour le fichier de log
+    echo "[$timestamp] $message" >> "$LOG_FILE"
+    
+    # Stockage des échecs pour le rapport HTML
+    if [[ "$message" == FAIL:* ]]; then
+        echo "<div class='failure-item'>" >> "$TEMP_FAILS"
+        echo "<div class='failure-header'><span class='cis-ref'>$cis_ref</span></div>" >> "$TEMP_FAILS"
+        echo "<div class='failure-message'>$content</div>" >> "$TEMP_FAILS"
+        echo "</div>" >> "$TEMP_FAILS"
+    fi
 }
 export -f log_message
 
@@ -55,21 +74,14 @@ check_prerequisites() {
 
 # Fonction pour générer le rapport HTML
 generate_html_report() {
-    local end_time=$(date +%s)
-    local duration=$((end_time - start_time))
-    local compliance_rate=0
-    
-    if [ "$TOTAL_CHECKS" -gt 0 ]; then
-        compliance_rate=$(( (PASSED_CHECKS * 100) / TOTAL_CHECKS ))
-    fi
-
-    # Création d'un fichier temporaire pour stocker les échecs
-    local temp_fails=$(mktemp)
-    grep "FAIL:" "$REPORT_FILE" > "$temp_fails"
+    local start_time=$1
+    local end_time=$2
+    local duration=$3
+    local compliance_rate=$4
     
     cat > "$HTML_REPORT" << EOF
 <!DOCTYPE html>
-<html lang="fr">
+<html>
 <head>
     <meta charset="UTF-8">
     <title>Rapport d'audit CIS</title>
@@ -89,63 +101,6 @@ generate_html_report() {
             border-radius: 5px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
-        h1, h2, h3 {
-            color: #2c3e50;
-            margin-top: 20px;
-        }
-        h1 {
-            text-align: center;
-            border-bottom: 2px solid #2c3e50;
-            padding-bottom: 10px;
-        }
-        .summary {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 20px;
-            margin: 20px 0;
-        }
-        .stat-box {
-            background-color: #f8f9fa;
-            padding: 20px;
-            border-radius: 5px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-        .progress-bar {
-            width: 100%;
-            background-color: #e9ecef;
-            border-radius: 5px;
-            margin: 10px 0;
-            height: 20px;
-            overflow: hidden;
-        }
-        .progress {
-            width: ${compliance_rate}%;
-            height: 100%;
-            background-color: #4CAF50;
-            border-radius: 5px;
-            transition: width 0.5s ease-in-out;
-            position: relative;
-        }
-        .failed {
-            color: #dc3545;
-            font-weight: 500;
-        }
-        .passed {
-            color: #28a745;
-            font-weight: 500;
-        }
-        .section {
-            margin: 20px 0;
-            padding: 20px;
-            background-color: #f8f9fa;
-            border-radius: 5px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-        .section h3 {
-            margin-top: 0;
-            border-bottom: 1px solid #dee2e6;
-            padding-bottom: 10px;
-        }
         .failure-item {
             margin: 15px 0;
             padding: 15px;
@@ -153,32 +108,22 @@ generate_html_report() {
             border-left: 4px solid #dc3545;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
+        .failure-header {
+            margin-bottom: 8px;
+        }
         .cis-ref {
             font-weight: bold;
             color: #2c3e50;
             background-color: #e9ecef;
             padding: 2px 6px;
             border-radius: 3px;
-            margin-right: 10px;
+            font-size: 0.9em;
         }
         .failure-message {
             margin-top: 5px;
             color: #666;
-        }
-        .details {
-            margin: 20px 0;
-            padding: 20px;
-            background-color: #f8f9fa;
-            border-radius: 5px;
-        }
-        .details p {
-            margin: 5px 0;
-        }
-        .no-failures {
-            color: #28a745;
-            text-align: center;
-            padding: 10px;
-            font-style: italic;
+            font-size: 0.95em;
+            line-height: 1.4;
         }
     </style>
 </head>
@@ -187,113 +132,21 @@ generate_html_report() {
         <h1>Rapport d'audit CIS</h1>
         
         <div class="summary">
-            <div class="stat-box">
-                <h3>Résumé des vérifications</h3>
-                <p>Total des vérifications: <strong>$TOTAL_CHECKS</strong></p>
-                <p class="passed">Vérifications réussies: <strong>$PASSED_CHECKS</strong></p>
-                <p class="failed">Vérifications échouées: <strong>$FAILED_CHECKS</strong></p>
-            </div>
-            <div class="stat-box">
-                <h3>Taux de conformité</h3>
-                <div class="progress-bar">
-                    <div class="progress"></div>
-                </div>
-                <p><strong>${compliance_rate}%</strong> conforme</p>
-            </div>
-        </div>
-
-        <div class="details">
-            <h3>Détails de l'exécution</h3>
-            <p><strong>Début de l'audit:</strong> $(date -d @$start_time)</p>
-            <p><strong>Fin de l'audit:</strong> $(date -d @$end_time)</p>
-            <p><strong>Durée:</strong> ${duration} secondes</p>
+            <h2>Résumé</h2>
+            <p>Total des vérifications: <strong>$TOTAL_CHECKS</strong></p>
+            <p>Vérifications réussies: <strong>$PASSED_CHECKS</strong></p>
+            <p>Vérifications échouées: <strong>$FAILED_CHECKS</strong></p>
+            <p>Taux de conformité: <strong>${compliance_rate}%</strong></p>
         </div>
 
         <div class="failures">
             <h2>Points de contrôle échoués</h2>
-
-            <div class="section">
-                <h3>1. Configuration système initiale</h3>
-                $(grep "FAIL: \[CIS 1" "$temp_fails" | while read -r line; do
-                    cis_ref=$(echo "$line" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]*\]')
-                    message=$(echo "$line" | sed "s/FAIL: \[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]*\] //")
-                    echo "<div class='failure-item'>"
-                    echo "<span class='cis-ref'>$cis_ref</span>"
-                    echo "<div class='failure-message'>$message</div>"
-                    echo "</div>"
-                done || echo "<p class='no-failures'>Aucun échec dans cette section</p>")
-            </div>
-
-            <div class="section">
-                <h3>2. Services</h3>
-                $(grep "FAIL: \[CIS 2" "$temp_fails" | while read -r line; do
-                    cis_ref=$(echo "$line" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]*\]')
-                    message=$(echo "$line" | sed "s/FAIL: \[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]*\] //")
-                    echo "<div class='failure-item'>"
-                    echo "<span class='cis-ref'>$cis_ref</span>"
-                    echo "<div class='failure-message'>$message</div>"
-                    echo "</div>"
-                done || echo "<p class='no-failures'>Aucun échec dans cette section</p>")
-            </div>
-
-            <div class="section">
-                <h3>3. Configuration réseau</h3>
-                $(grep "FAIL: \[CIS 3" "$temp_fails" | while read -r line; do
-                    cis_ref=$(echo "$line" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]*\]')
-                    message=$(echo "$line" | sed "s/FAIL: \[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]*\] //")
-                    echo "<div class='failure-item'>"
-                    echo "<span class='cis-ref'>$cis_ref</span>"
-                    echo "<div class='failure-message'>$message</div>"
-                    echo "</div>"
-                done || echo "<p class='no-failures'>Aucun échec dans cette section</p>")
-            </div>
-
-            <div class="section">
-                <h3>4. Journalisation et audit</h3>
-                $(grep "FAIL: \[CIS 4" "$temp_fails" | while read -r line; do
-                    cis_ref=$(echo "$line" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]*\]')
-                    message=$(echo "$line" | sed "s/FAIL: \[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]*\] //")
-                    echo "<div class='failure-item'>"
-                    echo "<span class='cis-ref'>$cis_ref</span>"
-                    echo "<div class='failure-message'>$message</div>"
-                    echo "</div>"
-                done || echo "<p class='no-failures'>Aucun échec dans cette section</p>")
-            </div>
-
-            <div class="section">
-                <h3>5. Accès et authentification</h3>
-                $(grep "FAIL: \[CIS 5" "$temp_fails" | while read -r line; do
-                    cis_ref=$(echo "$line" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]*\]')
-                    message=$(echo "$line" | sed "s/FAIL: \[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]*\] //")
-                    echo "<div class='failure-item'>"
-                    echo "<span class='cis-ref'>$cis_ref</span>"
-                    echo "<div class='failure-message'>$message</div>"
-                    echo "</div>"
-                done || echo "<p class='no-failures'>Aucun échec dans cette section</p>")
-            </div>
-
-            <div class="section">
-                <h3>6. Maintenance système</h3>
-                $(grep "FAIL: \[CIS 6" "$temp_fails" | while read -r line; do
-                    cis_ref=$(echo "$line" | grep -o '\[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]*\]')
-                    message=$(echo "$line" | sed "s/FAIL: \[CIS [0-9]\.[0-9]\.[0-9]\.[0-9]*\] //")
-                    echo "<div class='failure-item'>"
-                    echo "<span class='cis-ref'>$cis_ref</span>"
-                    echo "<div class='failure-message'>$message</div>"
-                    echo "</div>"
-                done || echo "<p class='no-failures'>Aucun échec dans cette section</p>")
-            </div>
+            $(cat "$TEMP_FAILS")
         </div>
     </div>
 </body>
 </html>
 EOF
-
-    # Nettoyage
-    rm -f "$temp_fails"
-
-    chmod 644 "$HTML_REPORT"
-    log_message "Rapport HTML généré: $HTML_REPORT"
 }
 
 # Fonction principale
@@ -344,7 +197,14 @@ main() {
     log_message "Vérifications échouées: $FAILED_CHECKS"
     
     if [ "$GENERATE_HTML" -eq 1 ]; then
-        generate_html_report
+        local end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+        local compliance_rate=0
+        
+        if [ "$TOTAL_CHECKS" -gt 0 ]; then
+            compliance_rate=$(( (PASSED_CHECKS * 100) / TOTAL_CHECKS ))
+        fi
+        generate_html_report "$start_time" "$end_time" "$duration" "$compliance_rate"
     fi
 }
 

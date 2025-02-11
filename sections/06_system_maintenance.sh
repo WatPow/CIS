@@ -175,38 +175,40 @@ else
     FAILED_CHECKS=$((FAILED_CHECKS + 1))
 fi
 
-# 6.2.10 Vérification des répertoires home des utilisateurs
-TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
-valid_shells="^($(sed 's/\s/\|/g' /etc/shells))$"
-for user in $(awk -F: '($7 ~ /'"$valid_shells"'/) { print $1 " " $6 }' /etc/passwd); do
-    username=$(echo $user | cut -d" " -f1)
-    homedir=$(echo $user | cut -d" " -f2)
-    
-    if [ ! -d "$homedir" ]; then
-        log_message "FAIL: [CIS 6.2.10] Le répertoire home de $username ($homedir) n'existe pas"
-        FAILED_CHECKS=$((FAILED_CHECKS + 1))
-        continue
-    fi
-    
-    owner=$(stat -L -c "%U" "$homedir")
-    if [ "$owner" != "$username" ]; then
-        log_message "FAIL: [CIS 6.2.10] Le répertoire home de $username ($homedir) appartient à $owner"
-        FAILED_CHECKS=$((FAILED_CHECKS + 1))
-        continue
-    fi
-done
-
-# 6.2.11 Vérification des permissions des fichiers dot dans les répertoires home
-TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
-for dir in $(awk -F: '($7 ~ /'"$valid_shells"'/) { print $6 }' /etc/passwd); do
-    for file in $dir/.[A-Za-z0-9]*; do
-        if [ ! -h "$file" ] && [ -f "$file" ]; then
-            fileperm=$(stat -L -c "%a" "$file")
-            if [ $(( $fileperm & 0022 )) -ne 0 ]; then
-                log_message "FAIL: [CIS 6.2.11] Le fichier $file a des permissions trop permissives: $fileperm"
-                FAILED_CHECKS=$((FAILED_CHECKS + 1))
-                continue 2
+# Vérification des répertoires home
+check_home_directories() {
+    local user_home
+    while IFS=: read -r username _ uid _ _ home_dir _; do
+        if [ "$uid" -ge 1000 ] && [ "$uid" -ne 65534 ]; then
+            if [ -d "$home_dir" ]; then
+                perms=$(stat -L -c "%a" "$home_dir")
+                if [ "$perms" -gt 750 ]; then
+                    log_message "FAIL: [CIS 6.2.10] Les permissions du répertoire home $home_dir sont trop permissives"
+                    FAILED_CHECKS=$((FAILED_CHECKS + 1))
+                else
+                    log_message "PASS: [CIS 6.2.10] Les permissions du répertoire home $home_dir sont correctes"
+                    PASSED_CHECKS=$((PASSED_CHECKS + 1))
+                fi
             fi
         fi
-    done
-done 
+    done < /etc/passwd
+}
+
+# Vérification des fichiers dot
+check_dot_files() {
+    local user_home
+    while IFS=: read -r username _ uid _ _ home_dir _; do
+        if [ "$uid" -ge 1000 ] && [ -d "$home_dir" ]; then
+            for dot_file in "$home_dir"/.*; do
+                if [ -f "$dot_file" ]; then
+                    perms=$(stat -L -c "%a" "$dot_file")
+                    if [ "$perms" -gt 750 ]; then
+                        log_message "FAIL: [CIS 6.2.11] Les permissions du fichier $dot_file sont trop permissives"
+                        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+                        break
+                    fi
+                fi
+            done
+        fi
+    done < /etc/passwd
+} 
