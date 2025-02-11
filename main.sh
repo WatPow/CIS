@@ -17,6 +17,7 @@ log_message() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $message" | tee -a "$LOG_FILE"
     echo "$message" >> "$REPORT_FILE"
 }
+export -f log_message
 
 # Vérification des prérequis
 check_prerequisites() {
@@ -56,7 +57,11 @@ check_prerequisites() {
 generate_html_report() {
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))
-    local compliance_rate=$(( (PASSED_CHECKS * 100) / TOTAL_CHECKS ))
+    local compliance_rate=0
+    
+    if [ "$TOTAL_CHECKS" -gt 0 ]; then
+        compliance_rate=$(( (PASSED_CHECKS * 100) / TOTAL_CHECKS ))
+    fi
     
     cat > "$HTML_REPORT" << EOF
 <!DOCTYPE html>
@@ -168,6 +173,11 @@ main() {
     log_message "Début de l'audit CIS"
     log_message "===================="
 
+    # Export des variables pour les sous-scripts
+    export FAILED_CHECKS
+    export PASSED_CHECKS
+    export TOTAL_CHECKS
+
     # Exécution des sections dans l'ordre
     local sections=(
         "01_initial_setup.sh"
@@ -181,7 +191,8 @@ main() {
     for section in "${sections[@]}"; do
         if [ -f "sections/$section" ]; then
             log_message "Exécution de la section: $section"
-            bash "sections/$section"
+            # Exécution dans le même environnement shell
+            . "sections/$section"
             if [ $? -ne 0 ]; then
                 log_message "ERREUR: Échec de l'exécution de $section"
             fi

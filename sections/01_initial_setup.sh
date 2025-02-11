@@ -4,7 +4,7 @@
 log_message "=== 1 Configuration système initiale ==="
 
 # Fonction de vérification des modules du système de fichiers
-function check_filesystem_modules() {
+check_filesystem_modules() {
     local module=$1
     if lsmod | grep "$module" > /dev/null 2>&1; then
         log_message "FAIL: Le module $module est chargé"
@@ -17,7 +17,7 @@ function check_filesystem_modules() {
 }
 
 # Fonction de vérification des partitions
-function check_partition() {
+check_partition() {
     local partition=$1
     local required_options=$2
     
