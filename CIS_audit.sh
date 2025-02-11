@@ -117,6 +117,119 @@ Recommandations:
     fi
 }
 
+# Fonction de génération du rapport HTML
+generate_html_report() {
+    local html_report="/var/log/cis_report_$(date +%Y%m%d).html"
+    local total_compliance=$(( (PASSED_CHECKS * 100) / TOTAL_CHECKS ))
+    
+    log_message "Génération du rapport HTML dans $html_report"
+    
+    cat << EOF > "$html_report"
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Rapport d'audit CIS - $(date)</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .header { background: #2c3e50; color: white; padding: 20px; border-radius: 5px; }
+        .summary { background: #ecf0f1; padding: 20px; margin: 20px 0; border-radius: 5px; }
+        .section { margin: 20px 0; }
+        .check { margin: 10px 0; padding: 10px; border-radius: 3px; }
+        .pass { background: #27ae60; color: white; }
+        .fail { background: #c0392b; color: white; }
+        .info { background: #3498db; color: white; }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e74c3c;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+        .progress {
+            width: ${total_compliance}%;
+            height: 100%;
+            background: #2ecc71;
+            border-radius: 10px;
+            transition: width 1s ease-in-out;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px; text-align: left; border: 1px solid #bdc3c7; }
+        th { background: #34495e; color: white; }
+        tr:nth-child(even) { background: #f2f2f2; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Rapport d'audit CIS</h1>
+        <p>Date: $(date)</p>
+        <p>Système: $(uname -a)</p>
+    </div>
+
+    <div class="summary">
+        <h2>Résumé des vérifications</h2>
+        <div class="progress-bar">
+            <div class="progress"></div>
+        </div>
+        <table>
+            <tr>
+                <th>Métrique</th>
+                <th>Valeur</th>
+            </tr>
+            <tr>
+                <td>Total des contrôles</td>
+                <td>$TOTAL_CHECKS</td>
+            </tr>
+            <tr>
+                <td>Contrôles réussis</td>
+                <td>$PASSED_CHECKS</td>
+            </tr>
+            <tr>
+                <td>Contrôles échoués</td>
+                <td>$FAILED_CHECKS</td>
+            </tr>
+            <tr>
+                <td>Taux de conformité</td>
+                <td>${total_compliance}%</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>Détails des vérifications</h2>
+EOF
+
+    # Ajout des résultats détaillés depuis le log
+    while IFS= read -r line; do
+        if [[ $line == *"PASS:"* ]]; then
+            echo "<div class='check pass'>✓ ${line#*- }</div>" >> "$html_report"
+        elif [[ $line == *"FAIL:"* ]]; then
+            echo "<div class='check fail'>✗ ${line#*- }</div>" >> "$html_report"
+        elif [[ $line == *"==="* ]]; then
+            echo "<h3>${line#*===}</h3>" >> "$html_report"
+        fi
+    done < "$LOG_FILE"
+
+    # Fermeture du rapport HTML
+    cat << EOF >> "$html_report"
+    </div>
+
+    <div class="section">
+        <h2>Recommandations</h2>
+        <ul>
+            <li>Examiner les échecs et appliquer les corrections nécessaires</li>
+            <li>Vérifier les sauvegardes dans $BACKUP_DIR</li>
+            <li>Consulter le journal détaillé dans $LOG_FILE</li>
+            <li>Réexécuter l'audit après les corrections</li>
+        </ul>
+    </div>
+</body>
+</html>
+EOF
+
+    log_message "Rapport HTML généré avec succès dans $html_report"
+}
+
 # Exécution des vérifications préliminaires
 check_prerequisites
 log_message "Début de l'audit CIS"
