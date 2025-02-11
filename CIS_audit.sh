@@ -5,6 +5,7 @@ MODE_AUDIT=false
 LOG_FILE="/var/log/cis_audit.log"
 BACKUP_DIR="/root/cis_backup_$(date +%Y%m%d)"
 REPORT_FILE="/var/log/cis_report_$(date +%Y%m%d).txt"
+HTML_REPORT="./cis_report_$(date +%Y%m%d).html"
 FAILED_CHECKS=0
 PASSED_CHECKS=0
 TOTAL_CHECKS=0
@@ -119,12 +120,11 @@ Recommandations:
 
 # Fonction de génération du rapport HTML
 generate_html_report() {
-    local html_report="/var/log/cis_report_$(date +%Y%m%d).html"
     local total_compliance=$(( (PASSED_CHECKS * 100) / TOTAL_CHECKS ))
     
-    log_message "Génération du rapport HTML dans $html_report"
+    log_message "Génération du rapport HTML dans $HTML_REPORT"
     
-    cat << EOF > "$html_report"
+    cat << EOF > "$HTML_REPORT"
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -202,16 +202,16 @@ EOF
     # Ajout des résultats détaillés depuis le log
     while IFS= read -r line; do
         if [[ $line == *"PASS:"* ]]; then
-            echo "<div class='check pass'>✓ ${line#*- }</div>" >> "$html_report"
+            echo "<div class='check pass'>✓ ${line#*- }</div>" >> "$HTML_REPORT"
         elif [[ $line == *"FAIL:"* ]]; then
-            echo "<div class='check fail'>✗ ${line#*- }</div>" >> "$html_report"
+            echo "<div class='check fail'>✗ ${line#*- }</div>" >> "$HTML_REPORT"
         elif [[ $line == *"==="* ]]; then
-            echo "<h3>${line#*===}</h3>" >> "$html_report"
+            echo "<h3>${line#*===}</h3>" >> "$HTML_REPORT"
         fi
     done < "$LOG_FILE"
 
     # Fermeture du rapport HTML
-    cat << EOF >> "$html_report"
+    cat << EOF >> "$HTML_REPORT"
     </div>
 
     <div class="section">
@@ -227,7 +227,7 @@ EOF
 </html>
 EOF
 
-    log_message "Rapport HTML généré avec succès dans $html_report"
+    log_message "Rapport HTML généré avec succès dans $HTML_REPORT"
 }
 
 # Exécution des vérifications préliminaires
